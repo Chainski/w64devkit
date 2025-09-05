@@ -1,7 +1,10 @@
-name: Build w64devkit 
+name: Build w64devkit
 
 on:
   push:
+    branches:
+      - master
+  pull_request:
     branches:
       - master
 
@@ -11,76 +14,68 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     strategy:
+      fail-fast: false
       matrix:
-        arch: [x64, x86]
+        arch: ["x64", "x86"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Set up environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            patch \
-            p7zip-full \
-            git \
-            wget \
-            curl \
-            xz-utils \
-            bison \
-            flex \
-            gawk \
-            texinfo
+          # Set environment variables for reliable HTTP mirrors
+          echo "export GNU_MIRROR=https://ftpmirror.gnu.org" >> $GITHUB_ENV
+          echo "export GCC_VERSION=15.2.0" >> $GITHUB_ENV
 
-      - name: Make build script executable
-        run: chmod +x ./multibuild.sh
-
-      - name: Run build
-        run: |
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            ./multibuild.sh -8
-          else
-            ./multibuild.sh -4
-          fi
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - name: Cache dependencies
+        uses: actions/cache@v4
         with:
-          name: w64devkit-${{ matrix.arch }}
-          path: w64devkit-*.exe
+          path: |
+            /tmp/gcc-${{ env.GCC_VERSION }}
+            /tmp/gmp-${{ env.GCC_VERSION }}
+            /tmp/mpfr-${{ env.GCC_VERSION }}
+            /tmp/mpc-${{ env.GCC_VERSION }}
+          key: gcc-${{ env.GCC_VERSION }}-${{ runner.os }}-${{ matrix.arch }}
+          restore-keys: |
+            gcc-${{ env.GCC_VERSION }}-${{ runner.os }}-
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Apply patch for x86 architecture
+        if: matrix.arch == 'x86'
+        run: patch -p1 -i src/variant-x86.patch
 
-      - name: Get version string
-        id: version
+      - name: Generate archive name and version string
+        id: filename
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          VER="$(git describe --tags --always | tr v -)"
-          echo "ver=$VER" >> $GITHUB_OUTPUT
+          GIT_VERSION="$(git describe --tags --always)"
+          echo "version=${GIT_VERSION:1}" >> $GITHUB_OUTPUT
+          echo "archive=w64devkit-$ARCH-${GIT_VERSION:1}" >> $GITHUB_OUTPUT
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./dist
+      - name: Build w64devkit
+        run: |
+          docker build -t w64devkit .
+          docker run --rm w64devkit > w64devkit-${{ steps.filename.outputs.archive }}.exe
 
-      - name: Set up GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
-
-      - name: Delete existing release (if any)
+      - name: Delete existing release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete ${{ steps.version.outputs.ver }} --yes || true
-          git push origin :refs/tags/${{ steps.version.outputs.ver }} || true
+          gh release delete ${{ steps.filename.outputs.version }} --yes
 
-      - name: Create new release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.filename.outputs.archive }}
+          path: w64devkit-*.exe
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.ver }}
-          name: w64devkit-${{ steps.version.outputs.ver }}
-          files: dist/**/*.exe
+          name: ${{ steps.filename.outputs.version }}
+          files: w64devkit-*.exe
+          draft: true
