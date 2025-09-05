@@ -8,27 +8,64 @@ on:
 permissions:
   contents: write
 
+env:
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, x86]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-docker-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
 
       - name: Make script executable
         run: chmod +x ./multibuild.sh
 
-      - name: Run multibuild.sh
-        run: ./multibuild.sh -a
+      - name: Build (${{ matrix.arch }})
+        run: |
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            ./multibuild.sh -8
+          else
+            ./multibuild.sh -4
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: w64devkit-${{ matrix.arch }}
+          path: w64devkit-*.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Get version string
         id: version
         run: |
           VER="$(git describe --tags --always | tr v -)"
           echo "ver=$VER" >> $GITHUB_OUTPUT
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist
+
+      - name: Set up GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
 
       - name: Delete existing release (if any)
         env:
@@ -42,4 +79,4 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.ver }}
           name: w64devkit-${{ steps.version.outputs.ver }}
-          files: w64devkit-*.exe
+          files: dist/**/*.exe
