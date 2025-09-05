@@ -31,20 +31,20 @@ jobs:
           mkdir -p downloads
           cd downloads
           # GNU sources
-          curl -L -O https://ftp.gnu.org/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz
-          curl -L -O https://ftp.gnu.org/gnu/binutils/binutils-2.45.tar.xz
-          curl -L -O https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
-          curl -L -O https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz
-          curl -L -O https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz
-          curl -L -O https://ftp.gnu.org/gnu/libiconv/libiconv-1.18.tar.gz
-          curl -L -O https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
-          curl -L -O https://ftp.gnu.org/gnu/gdb/gdb-16.2.tar.xz
-          # Other sources
+          curl -L -O https://gcc.gnu.org/pub/gcc/releases/gcc-15.2.0/gcc-15.2.0.tar.gz
+          curl -L -O https://ftp.wayne.edu/gnu/binutils/binutils-2.45.tar.gz
+          curl -L -O https://mirror.koddos.net/gnu/gmp/gmp-6.3.0.tar.xz
+          curl -L -O https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
+          curl -L -O https://mirror.koddos.net/gnu/mpc/mpc-1.3.1.tar.gz
+          curl -L -O https://mirror.freedif.org/GNU/libiconv/libiconv-1.18.tar.gz
+          curl -L -O https://mirror.koddos.net/gnu/make/make-4.4.1.tar.gz
+          curl -L -O https://sourceware.org/pub/gdb/releases/gdb-16.2.tar.xz
+          # other
           curl -L -O https://github.com/libexpat/libexpat/releases/download/R_2_7_0/expat-2.7.0.tar.xz
-          curl -L -O https://github.com/mirror/busybox/releases/download/v5579/busybox-w32-FRP-5579-g5749feb35.tgz
-          curl -L -O https://github.com/universal-ctags/ctags/releases/download/6.0.0/ctags-6.0.0.tar.gz
+          curl -L -O https://github.com/mirror/busybox/archive/refs/tags/1_36_1.tar.gz
+          curl -L -O https://github.com/universal-ctags/ctags/releases/download/v6.2.0/universal-ctags-6.2.0.tar.gz
           curl -L -O https://github.com/wmcbrine/PDCurses/archive/refs/tags/3.9.tar.gz
-          curl -L -O https://github.com/vim/vim/archive/refs/tags/v9.0.tar.bz2
+          curl -L -O https://github.com/vim/vim/archive/refs/tags/v9.1.1734.tar.gz
 
       # Install Docker (preinstalled on runners, but ensures latest)
       - name: Install Docker CLI
