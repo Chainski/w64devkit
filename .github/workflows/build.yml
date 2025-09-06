@@ -21,13 +21,12 @@ jobs:
       - name: Make script executable
         run: chmod +x ./multibuild.sh
 
-      - name: Run multibuild.sh (quiet)
+      - name: Run multibuild.sh (minimal logging)
         run: |
           set -e
-          ./multibuild.sh -a > build.log 2>&1 || {
-            echo "Build failed"
-            exit 1
-          }
+          # Capture all output in build.log, but show warnings/errors live
+          ./multibuild.sh -a > >(tee build.log) 2> >(tee -a build.log >&2)
+          # Clean up Docker layers to avoid runner OOM/timeout
           docker system prune -af || true
 
       - name: Upload build artifacts
