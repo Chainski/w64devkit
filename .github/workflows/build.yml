@@ -25,11 +25,9 @@ jobs:
         run: |
           set -e
           ./multibuild.sh -a > build.log 2>&1 || {
-            echo "Build failed — showing build.log:"
-            cat build.log
+            echo "Build failed"
             exit 1
           }
-          # Clean up Docker layers to avoid runner OOM/timeout
           docker system prune -af || true
 
       - name: Upload build artifacts
