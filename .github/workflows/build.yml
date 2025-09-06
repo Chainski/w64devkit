@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [""]
+        arch: ["x64"]
         flavor: ["", "fortran", "mini"]
 
     steps:
