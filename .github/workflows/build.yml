@@ -20,15 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["x64", "x86"]
+        arch: ["x64"]
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Apply x86 patch
-        if: matrix.arch == 'x86'
-        run: patch -p1 -i src/variant-x86.patch
-
       - name: Generate archive name and version string
         id: filename
         env:
