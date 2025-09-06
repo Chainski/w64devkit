@@ -11,45 +11,59 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Generate archive name and version string
-        id: filename
+      - name: Generate version string
+        id: version
         run: |
           VER="$(git describe --tags --always | tr v -)"
-          echo "version=${VER#v}" >> $GITHUB_OUTPUT
-          echo "archive=w64devkit-${VER#v}" >> $GITHUB_OUTPUT
+          echo "ver=${VER#v}" >> $GITHUB_OUTPUT
 
-      - name: Build and export artifact
+      - name: Build with Docker
         run: |
-          docker build \
-            --output type=local,dest=out \
-            .
-          ls -lh out
+          docker build --build-arg ARCH=${{ matrix.arch }} -t w64devkit-${{ matrix.arch }} .
+
+      - name: Extract files
+        run: |
+          id=$(docker create w64devkit-${{ matrix.arch }})
+          docker cp $id:/w64devkit ./out
+          docker rm $id
+
+      - name: Compress artifact
+        run: |
+          7z a w64devkit-${{ matrix.arch }}-${{ steps.version.outputs.ver }}.7z ./out/*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.filename.outputs.archive }}
-          path: out/*.exe
+          name: w64devkit-${{ matrix.arch }}
+          path: w64devkit-${{ matrix.arch }}-${{ steps.version.outputs.ver }}.7z
 
-      - name: Delete existing release (if any)
-        if: github.ref == 'refs/heads/master'
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Delete existing release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete ${{ steps.filename.outputs.version }} --yes || true
-          git push origin :refs/tags/${{ steps.filename.outputs.version }} || true
+          gh release delete ${{ needs.build.outputs.ver }} --yes || true
+          git push origin :refs/tags/${{ needs.build.outputs.ver }} || true
 
       - name: Create new release
-        if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.filename.outputs.version }}
-          name: w64devkit-${{ steps.filename.outputs.version }}
-          files: out/*.exe
+          tag_name: ${{ needs.build.outputs.ver }}
+          name: w64devkit-${{ needs.build.outputs.ver }}
+          files: artifacts/**/*
