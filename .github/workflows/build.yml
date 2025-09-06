@@ -11,67 +11,27 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x64, x86]
 
     steps:
       - uses: actions/checkout@v4
 
-      # Cache previously downloaded sources
-      - uses: actions/cache@v4
-        with:
-          path: downloads
-          key: w64devkit-sources-${{ runner.os }}-${{ matrix.arch }}
-          restore-keys: w64devkit-sources-
+      - name: Set up GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
 
-      # Pre-download reliable source tarballs
-      - name: Download dependencies
-        run: |
-          set -e
-          mkdir -p downloads
-          cd downloads
-          # GNU sources
-          curl -L --fail -O https://gcc.gnu.org/pub/gcc/releases/gcc-15.2.0/gcc-15.2.0.tar.gz
-          curl -L --fail -O https://ftp.wayne.edu/gnu/binutils/binutils-2.45.tar.gz
-          curl -L --fail -O https://mirror.koddos.net/gnu/gmp/gmp-6.3.0.tar.xz
-          curl -L --fail -O https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz
-          curl -L --fail -O https://mirror.koddos.net/gnu/mpc/mpc-1.3.1.tar.gz
-          curl -L --fail -O https://mirror.freedif.org/GNU/libiconv/libiconv-1.18.tar.gz
-          curl -L --fail -O https://mirror.koddos.net/gnu/make/make-4.4.1.tar.gz
-          curl -L --fail -O https://sourceware.org/pub/gdb/releases/gdb-16.2.tar.xz
-          # Other sources
-          curl -L --fail -O https://github.com/libexpat/libexpat/releases/download/R_2_7_0/expat-2.7.0.tar.xz
-          curl -L --fail -O https://github.com/mirror/busybox/archive/refs/tags/1_36_1.tar.gz
-          curl -L --fail -O https://github.com/universal-ctags/ctags/releases/download/v6.2.0/universal-ctags-6.2.0.tar.gz
-          curl -L --fail -O https://github.com/wmcbrine/PDCurses/archive/refs/tags/3.9.tar.gz
-          curl -L --fail -O https://github.com/vim/vim/archive/refs/tags/v9.1.1734.tar.gz
-
-      - name: Make build script executable
+      - name: Make script executable
         run: chmod +x ./multibuild.sh
 
-      # Run multibuild.sh, mounting downloads into Docker build
-      - name: Run build
+      - name: Run multibuild.sh
         run: |
-          export LOCAL_DOWNLOAD=$(pwd)/downloads
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            ./multibuild.sh -8
-          else
-            ./multibuild.sh -4
-          fi
+          ./multibuild.sh -a
+          # Clean up Docker layers to avoid runner OOM/timeout
+          docker system prune -af || true
 
-      # Upload artifacts
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: w64devkit-${{ matrix.arch }}
+          name: w64devkit-binaries
           path: w64devkit-*.exe
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Get version string
         id: version
@@ -79,15 +39,7 @@ jobs:
           VER="$(git describe --tags --always | tr v -)"
           echo "ver=$VER" >> $GITHUB_OUTPUT
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./dist
-
-      - name: Set up GitHub CLI
-        run: sudo apt-get update && sudo apt-get install -y gh
-
-      - name: Delete existing release
+      - name: Delete existing release (if any)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -99,4 +51,4 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.ver }}
           name: w64devkit-${{ steps.version.outputs.ver }}
-          files: dist/**/*.exe
+          files: w64devkit-*.exe
