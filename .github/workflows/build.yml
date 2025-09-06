@@ -1,9 +1,11 @@
 name: Build w64devkit
-
 on:
+  pull_request: {}
   push:
     branches:
-      - master
+      - '*'
+    tags:
+      - '*'
 
 permissions:
   contents: write
@@ -11,77 +13,53 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, x86]
+        arch: [""]
+        flavor: ["", "fortran", "mini"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Apply Fortran patch
+        if: matrix.flavor == 'fortran'
+        run: patch -p1 -i src/variant-fortran.patch
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.arch }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.arch }}-
+      - name: Apply Mini patch
+        if: matrix.flavor == 'mini'
+        run: patch -p1 -i src/variant-mini.patch
 
-      - name: Generate archive name
-        id: meta
+      - name: Generate ZIP name and version string
+        id: filename
+        env:
+          ARCH: ${{ matrix.arch }}
+          FLAVOR: ${{ matrix.flavor }}
         run: |
-          VER="$(git describe --tags --always | tr v -)"
-          echo "version=${VER}" >> $GITHUB_OUTPUT
-          echo "archive=w64devkit-${{ matrix.arch }}-${VER}" >> $GITHUB_OUTPUT
+          GIT_VERSION="$(git describe --tags --always)"
+          echo "version=${GIT_VERSION:1}" >> $GITHUB_OUTPUT
+          echo "zipname=w64devkit${ARCH:+-$ARCH}${FLAVOR:+-$FLAVOR}-${GIT_VERSION:1}" >> $GITHUB_OUTPUT
 
-      - name: Build with export
+      - name: Build
         run: |
-          docker buildx build \
-            --build-arg ARCH=${{ matrix.arch }} \
-            --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --output type=local,dest=out .
-          mv out/*.exe ./${{ steps.meta.outputs.archive }}.exe
-        # Swap cache dirs to avoid growing unbounded
-        shell: bash
+          docker build -t w64devkit .
+          docker run --rm w64devkit > ${{ steps.filename.outputs.zipname }}.zip
 
-      - name: Move new cache into place
-        if: always()
+      - name: Prepare artifact
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          unzip ${{ steps.filename.outputs.zipname }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v2
         with:
-          name: ${{ steps.meta.outputs.archive }}
-          path: ${{ steps.meta.outputs.archive }}.exe
+          name: ${{ steps.filename.outputs.zipname }}
+          path: w64devkit/*
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
         with:
-          path: out
-
-      - name: Delete existing release (if any)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VER="$(git describe --tags --always | tr v -)"
-          gh release delete $VER --yes || true
-          git push origin :refs/tags/$VER || true
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.sha }}
-          name: w64devkit-${{ github.sha }}
-          files: out/**/*.exe
+          name: ${{ steps.filename.outputs.version }}
+          files: w64devkit-*.zip
+          draft: true
