@@ -1,15 +1,10 @@
 name: Build w64devkit
 
 on:
-  pull_request: {}
   push:
     branches:
-      - '*'
-    tags:
-      - '*'
+      - master
 
-# Must set Settings -> Actions -> General -> Workflow permissions to
-# "Read and write permissions"
 permissions:
   contents: write
 
@@ -17,42 +12,44 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64", "x86"]
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply x86 patch
-        if: matrix.arch == 'x86'
-        run: patch -p1 -i src/variant-x86.patch
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Generate archive name and version string
         id: filename
-        env:
-          ARCH: ${{ matrix.arch }}
         run: |
-          GIT_VERSION="$(git describe --tags --always)"
-          echo "version=${GIT_VERSION:1}" >> $GITHUB_OUTPUT
-          echo "archive=w64devkit-$ARCH-${GIT_VERSION:1}" >> $GITHUB_OUTPUT
+          VER="$(git describe --tags --always | tr v -)"
+          echo "version=${VER#v}" >> $GITHUB_OUTPUT
+          echo "archive=w64devkit-${VER#v}" >> $GITHUB_OUTPUT
 
-      - name: Build
+      - name: Build and export artifact
         run: |
-          docker build -t w64devkit .
-          docker run --rm w64devkit > ${{ steps.filename.outputs.archive }}.exe
+          docker build \
+            --output type=local,dest=out \
+            .
+          ls -lh out
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.filename.outputs.archive }}
-          path: w64devkit-*.exe
+          path: out/*.exe
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Delete existing release (if any)
+        if: github.ref == 'refs/heads/master'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete ${{ steps.filename.outputs.version }} --yes || true
+          git push origin :refs/tags/${{ steps.filename.outputs.version }} || true
+
+      - name: Create new release
+        if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.filename.outputs.version }}
-          files: w64devkit-*.exe
-          draft: true
+          tag_name: ${{ steps.filename.outputs.version }}
+          name: w64devkit-${{ steps.filename.outputs.version }}
+          files: out/*.exe
