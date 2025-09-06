@@ -19,51 +19,69 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate version string
-        id: version
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.arch }}-
+
+      - name: Generate archive name
+        id: meta
         run: |
           VER="$(git describe --tags --always | tr v -)"
-          echo "ver=${VER#v}" >> $GITHUB_OUTPUT
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "archive=w64devkit-${{ matrix.arch }}-${VER}" >> $GITHUB_OUTPUT
 
-      - name: Build with Docker
+      - name: Build with export
         run: |
-          docker build --build-arg ARCH=${{ matrix.arch }} -t w64devkit-${{ matrix.arch }} .
+          docker buildx build \
+            --build-arg ARCH=${{ matrix.arch }} \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --output type=local,dest=out .
+          mv out/*.exe ./${{ steps.meta.outputs.archive }}.exe
+        # Swap cache dirs to avoid growing unbounded
+        shell: bash
 
-      - name: Extract files
+      - name: Move new cache into place
+        if: always()
         run: |
-          id=$(docker create w64devkit-${{ matrix.arch }})
-          docker cp $id:/w64devkit ./out
-          docker rm $id
-
-      - name: Compress artifact
-        run: |
-          7z a w64devkit-${{ matrix.arch }}-${{ steps.version.outputs.ver }}.7z ./out/*
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: w64devkit-${{ matrix.arch }}
-          path: w64devkit-${{ matrix.arch }}-${{ steps.version.outputs.ver }}.7z
+          name: ${{ steps.meta.outputs.archive }}
+          path: ${{ steps.meta.outputs.archive }}.exe
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: out
 
-      - name: Delete existing release
+      - name: Delete existing release (if any)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete ${{ needs.build.outputs.ver }} --yes || true
-          git push origin :refs/tags/${{ needs.build.outputs.ver }} || true
+          VER="$(git describe --tags --always | tr v -)"
+          gh release delete $VER --yes || true
+          git push origin :refs/tags/$VER || true
 
-      - name: Create new release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build.outputs.ver }}
-          name: w64devkit-${{ needs.build.outputs.ver }}
-          files: artifacts/**/*
+          tag_name: ${{ github.sha }}
+          name: w64devkit-${{ github.sha }}
+          files: out/**/*.exe
